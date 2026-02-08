@@ -351,6 +351,24 @@ def main():
         jitter_patches=False,
     )
 
+    # ── Print model parameter tree ──
+    import flax.linen as fnn
+    def _print_param_tree(d, prefix=""):
+        for k, v in sorted(d.items()):
+            if isinstance(v, dict):
+                print(f"{prefix}{k}/")
+                _print_param_tree(v, prefix + "  ")
+            else:
+                print(f"{prefix}{k}: {v.shape} ({v.dtype})")
+    print("\n" + "=" * 60)
+    print("JAX IsotropicModel Parameter Tree")
+    print("=" * 60)
+    _print_param_tree(jax_params["params"])
+    total_params = sum(int(np.prod(v.shape)) for v in jax.tree.leaves(jax_params["params"]))
+    print(f"\nTotal parameters: {total_params:,}")
+    print(f"Total size: {total_params * 4 / 1e6:.1f} MB (float32)")
+    print("=" * 60 + "\n")
+
     jax_out = jax_model.apply(
         jax_params,
         jnp.array(x_np),
