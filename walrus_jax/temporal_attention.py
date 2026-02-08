@@ -41,6 +41,16 @@ def _conv3d_1x1(x, weight, bias=None):
     return jnp.transpose(out, (0, 4, 1, 2, 3))
 
 
+def _drop_path(x, rate: float, deterministic: bool, rng_key):
+    """Stochastic depth: randomly drop entire samples (timm DropPath)."""
+    if rate == 0.0 or deterministic:
+        return x
+    keep = 1.0 - rate
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    mask = jax.random.bernoulli(rng_key, keep, shape=shape).astype(x.dtype)
+    return x * mask / keep
+
+
 class AxialTimeAttention(nn.Module):
     """
     Temporal attention applied independently at each spatial location.
@@ -57,7 +67,7 @@ class AxialTimeAttention(nn.Module):
     causal_in_time: bool = False
 
     @nn.compact
-    def __call__(self, x, return_att=False):
+    def __call__(self, x, return_att=False, deterministic: bool = True):
         """
         Args:
             x: (T, B, C, H, W, D)
@@ -146,5 +156,12 @@ class AxialTimeAttention(nn.Module):
 
         x = _conv3d_1x1(att_out, output_head_weight, output_head_bias)
         x = rearrange(x, "(t b) c h w d -> t b c h w d", t=T)
+
+        # Stochastic depth (drop_path)
+        if self.drop_path > 0.0:
+            x = _drop_path(
+                x, self.drop_path, deterministic,
+                self.make_rng("drop_path") if not deterministic else None,
+            )
 
         return x + residual, []

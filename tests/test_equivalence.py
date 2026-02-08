@@ -294,6 +294,227 @@ def test_axial_time_attention():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Test 6: Full IsotropicModel (end-to-end)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_full_model():
+    """
+    End-to-end equivalence test for the full IsotropicModel.
+
+    Builds a small model (2 processor blocks), transfers all PyTorch weights
+    to the JAX model, and verifies identical outputs.
+
+    Because the PyTorch model's forward() includes training-specific machinery
+    (jitterer, field dropout, metadata) that the JAX model intentionally omits,
+    we manually run the PyTorch model's core pipeline:
+        encoder -> processor blocks -> decoder
+    to produce a fair comparison.
+    """
+    print("\n" + "=" * 60)
+    print("Test 6: Full IsotropicModel (end-to-end)")
+    print("=" * 60)
+
+    from functools import partial
+    from walrus.models.encoders.vstride_encoder import AdaptiveDVstrideEncoder as TorchAdaptiveEncoder
+    from walrus.models.decoders.vstride_decoder import AdaptiveDVstrideDecoder as TorchAdaptiveDecoder
+    from walrus.models.spatiotemporal_blocks.space_time_split import SpaceTimeSplitBlock as TorchBlock
+    from walrus.models.spatial_blocks.full_attention import FullAttention as TorchFullAttn
+    from walrus.models.temporal_blocks.axial_time_attention import AxialTimeAttention as TorchAxialTime
+    from einops import rearrange as einops_rearrange
+
+    from walrus_jax.model import IsotropicModel as JaxIsotropicModel
+
+    # ── Small test config ──
+    hidden_dim = 96
+    intermediate_dim = 48
+    n_states = 4
+    processor_blocks = 2
+    num_heads = 4
+    groups = 12
+    bks = ((4, 4), (4, 4), (4, 4))
+    causal = False
+    bias_type = "rel"
+
+    # Input sized so that encoder strides (4,4,4) + (4,4,4) reduce 32 -> 2
+    T, B = 2, 1
+    H, W, D = 32, 32, 32
+
+    # ── Build PyTorch components ──
+    torch_enc = TorchAdaptiveEncoder(
+        kernel_scales_seq=((4, 4),),
+        base_kernel_size3d=bks,
+        input_dim=n_states,
+        inner_dim=intermediate_dim,
+        output_dim=hidden_dim,
+        spatial_dims=3,
+        groups=groups,
+        variable_downsample=True,
+        variable_deterministic_ds=True,
+        learned_pad=True,
+        norm_layer=TorchRMSGroupNorm,
+        activation=nn.GELU,
+    )
+    torch_enc.eval()
+
+    torch_blocks = nn.ModuleList([
+        TorchBlock(
+            space_mixing=partial(TorchFullAttn, num_heads=num_heads, mlp_dim=None),
+            time_mixing=partial(TorchAxialTime, num_heads=num_heads, bias_type=bias_type),
+            channel_mixing=partial(nn.Identity),
+            hidden_dim=hidden_dim,
+            drop_path=0.0,
+            causal_in_time=causal,
+            norm_layer=TorchRMSGroupNorm,
+        )
+        for _ in range(processor_blocks)
+    ])
+    for blk in torch_blocks:
+        blk.eval()
+
+    torch_dec = TorchAdaptiveDecoder(
+        base_kernel_size3d=bks,
+        input_dim=hidden_dim,
+        inner_dim=intermediate_dim,
+        output_dim=n_states,
+        spatial_dims=3,
+        groups=groups,
+        learned_pad=True,
+        norm_layer=TorchRMSGroupNorm,
+        activation=nn.GELU,
+    )
+    torch_dec.eval()
+
+    # ── Extract weights into JAX param tree ──
+    def _np(t):
+        return torch_to_numpy(t)
+
+    params = {}
+
+    def _set(path, value):
+        keys = path.split(".")
+        d = params
+        for k in keys[:-1]:
+            if k not in d:
+                d[k] = {}
+            d = d[k]
+        d[keys[-1]] = value
+
+    # encoder_dummy (just a ones(1) scalar)
+    _set("encoder_dummy", np.ones(1, dtype=np.float32))
+
+    # Encoder
+    _set("embed_3.proj1_weight", _np(torch_enc.proj1.weight))
+    _set("embed_3.norm1.weight", _np(torch_enc.norm1.weight))
+    _set("embed_3.proj2_weight", _np(torch_enc.proj2.weight))
+    _set("embed_3.norm2.weight", _np(torch_enc.norm2.weight))
+
+    # Decoder
+    _set("debed_3.proj1_weight", _np(torch_dec.proj1.weight))
+    _set("debed_3.norm1.weight", _np(torch_dec.norm1.weight))
+    _set("debed_3.proj2_weight", _np(torch_dec.proj2.weight))
+    _set("debed_3.proj2_bias", _np(torch_dec.proj2.bias))
+
+    # Processor blocks
+    for i, blk in enumerate(torch_blocks):
+        sm = blk.space_mixing
+        tm = blk.time_mixing
+        jsm = f"blocks_{i}.space_mixing"
+        jtm = f"blocks_{i}.time_mixing"
+
+        _set(f"{jsm}.norm1.weight", _np(sm.norm1.weight))
+        _set(f"{jsm}.fused_ff_qkv.kernel", _np(sm.fused_ff_qkv.weight).T)
+        _set(f"{jsm}.fused_ff_qkv.bias", _np(sm.fused_ff_qkv.bias))
+        _set(f"{jsm}.q_norm.scale", _np(sm.q_norm.weight))
+        _set(f"{jsm}.q_norm.bias", _np(sm.q_norm.bias))
+        _set(f"{jsm}.k_norm.scale", _np(sm.k_norm.weight))
+        _set(f"{jsm}.k_norm.bias", _np(sm.k_norm.bias))
+        _set(f"{jsm}.rotary_emb.freqs", _np(sm.rotary_emb.freqs))
+        _set(f"{jsm}.attn_out.kernel", _np(sm.attn_out.weight).T)
+        _set(f"{jsm}.ff_out.kernel", _np(sm.ff_out.weight).T)
+        _set(f"{jsm}.ff_out.bias", _np(sm.ff_out.bias))
+
+        _set(f"{jtm}.norm1.weight", _np(tm.norm1.weight))
+        _set(f"{jtm}.input_head_weight", _np(tm.input_head.weight))
+        _set(f"{jtm}.input_head_bias", _np(tm.input_head.bias))
+        _set(f"{jtm}.output_head_weight", _np(tm.output_head.weight))
+        _set(f"{jtm}.output_head_bias", _np(tm.output_head.bias))
+        _set(f"{jtm}.qnorm.scale", _np(tm.qnorm.weight))
+        _set(f"{jtm}.qnorm.bias", _np(tm.qnorm.bias))
+        _set(f"{jtm}.knorm.scale", _np(tm.knorm.weight))
+        _set(f"{jtm}.knorm.bias", _np(tm.knorm.bias))
+        _set(f"{jtm}.rel_pos_bias.relative_attention_bias.embedding",
+             _np(tm.rel_pos_bias.relative_attention_bias.weight))
+
+    jax_params = {"params": params}
+
+    # ── Build identical inputs ──
+    x_np = np.random.randn(T, B, n_states, H, W, D).astype(np.float32) * 0.1
+    state_labels_np = np.arange(n_states, dtype=np.int64)
+    bcs = [[2, 2], [2, 2], [2, 2]]  # periodic BCs
+
+    # ── PyTorch forward (manual pipeline, no jitter) ──
+    stride1 = (4, 4, 4)
+    stride2 = (4, 4, 4)
+    random_kernel = ((4, 4), (4, 4), (4, 4))
+
+    with torch.no_grad():
+        x_pt = torch.from_numpy(x_np)
+        # Encode: PyTorch encoder expects (T, B, C, H, W, D) and rearranges internally
+        x_pt, _ = torch_enc(x_pt, random_kernel=random_kernel)
+        # x_pt is now (T, B, hidden_dim, H', W', D')
+
+        # Process
+        for blk in torch_blocks:
+            x_pt, _ = blk(x_pt, (bcs,), return_att=False)
+
+        # Decode (non-causal: last timestep only)
+        if not causal:
+            x_pt = x_pt[-1:]
+        T_out = x_pt.shape[0]
+        # PyTorch decoder expects (T, B, ...) and rearranges internally
+        x_pt = torch_dec(
+            x_pt,
+            torch.from_numpy(state_labels_np),
+            bcs,
+            stage_info={"random_kernel": random_kernel},
+        )
+        torch_out = x_pt
+
+    # ── JAX forward ──
+    jax_model = JaxIsotropicModel(
+        hidden_dim=hidden_dim,
+        intermediate_dim=intermediate_dim,
+        n_states=n_states,
+        processor_blocks=processor_blocks,
+        groups=groups,
+        num_heads=num_heads,
+        mlp_dim=0,
+        max_d=3,
+        causal_in_time=causal,
+        drop_path=0.0,
+        bias_type=bias_type,
+        base_kernel_size=bks,
+        use_spacebag=False,
+        use_silu=False,
+        include_d=(3,),
+        encoder_groups=groups,
+        learned_pad=False,
+    )
+
+    jax_out = jax_model.apply(
+        jax_params,
+        jnp.array(x_np),
+        jnp.array(state_labels_np),
+        bcs,
+        stride1=stride1,
+        stride2=stride2,
+        dim_key=3,
+    )
+
+    return assert_close("FullModel", torch_out, jax_out, atol=1e-3, rtol=1e-3)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Run all tests
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -304,6 +525,7 @@ if __name__ == "__main__":
         "Decoder": test_decoder(),
         "FullAttention": test_full_attention(),
         "AxialTimeAttention": test_axial_time_attention(),
+        "FullModel": test_full_model(),
     }
 
     print("\n" + "=" * 60)

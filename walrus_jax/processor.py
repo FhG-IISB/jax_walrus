@@ -28,11 +28,12 @@ class SpaceTimeSplitBlock(nn.Module):
     bias_type: str = "rel"
 
     @nn.compact
-    def __call__(self, x, bcs=None, return_att=False):
+    def __call__(self, x, bcs=None, return_att=False, deterministic: bool = True):
         """
         Args:
             x: (T, B, C, H, W, D)
             bcs: boundary conditions
+            deterministic: if False, enable stochastic depth (drop_path)
 
         Returns:
             x: (T, B, C, H, W, D), att_maps: []
@@ -47,7 +48,7 @@ class SpaceTimeSplitBlock(nn.Module):
             bias_type=self.bias_type,
             causal_in_time=self.causal_in_time,
             name="time_mixing",
-        )(x, return_att=return_att)
+        )(x, return_att=return_att, deterministic=deterministic)
 
         # 2) Spatial mixing — operates on (T*B, C, H, W, D)
         x = rearrange(x, "t b c h w d -> (t b) c h w d")
@@ -57,7 +58,7 @@ class SpaceTimeSplitBlock(nn.Module):
             num_heads=self.num_heads,
             drop_path=self.drop_path,
             name="space_mixing",
-        )(x, bcs=bcs, return_att=return_att)
+        )(x, bcs=bcs, return_att=return_att, deterministic=deterministic)
         x = rearrange(x, "(t b) c h w d -> t b c h w d", t=T)
 
         # 3) Channel mixing (identity in default Walrus config)

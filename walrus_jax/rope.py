@@ -100,7 +100,10 @@ class LRRotaryEmbedding(nn.Module):
         """Compute broadcastable axial frequencies for ND spatial grids."""
         all_freqs = []
         for ind, dim_size in enumerate(dims):
-            pos = jnp.arange(dim_size, dtype=jnp.float32)
+            if self.freqs_for == "pixel":
+                pos = jnp.linspace(-1.0, 1.0, dim_size)
+            else:
+                pos = jnp.arange(dim_size, dtype=jnp.float32)
             freqs = self(pos, seq_len=dim_size, index=ind)
             shape = [1] * len(dims)
             shape[ind] = dim_size

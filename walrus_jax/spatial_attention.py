@@ -25,6 +25,16 @@ class SwiGLU(nn.Module):
         return jax.nn.silu(gate) * x
 
 
+def _drop_path(x, rate: float, deterministic: bool, rng_key):
+    """Stochastic depth: randomly drop entire samples (timm DropPath)."""
+    if rate == 0.0 or deterministic:
+        return x
+    keep = 1.0 - rate
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    mask = jax.random.bernoulli(rng_key, keep, shape=shape).astype(x.dtype)
+    return x * mask / keep
+
+
 class FullAttention(nn.Module):
     """
     Spatial attention block with fused FF/QKV, SwiGLU, RoPE, and QK-norm.
@@ -42,7 +52,7 @@ class FullAttention(nn.Module):
     max_d: int = 3
 
     @nn.compact
-    def __call__(self, x, bcs=None, return_att=False):
+    def __call__(self, x, bcs=None, return_att=False, deterministic: bool = True):
         """
         Args:
             x: (B, C, H, W, D)
@@ -114,6 +124,12 @@ class FullAttention(nn.Module):
         ff_out = nn.Dense(self.hidden_dim, name="ff_out")(SwiGLU()(ff))
 
         x = attn_out + ff_out
+        # Stochastic depth (drop_path)
+        if self.drop_path > 0.0:
+            x = _drop_path(
+                x, self.drop_path, deterministic,
+                self.make_rng("drop_path") if not deterministic else None,
+            )
         x = rearrange(x, "b h w d c -> b c h w d") + residual
 
         return x, []
