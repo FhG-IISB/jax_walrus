@@ -12,8 +12,8 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 
-from walrus_jax.normalization import RMSGroupNorm
-from walrus_jax.encoder import _conv_transpose3d
+from jax_walrus.normalization import RMSGroupNorm
+from jax_walrus.encoder import _conv_transpose3d
 
 
 # Boundary condition value matching the_well.data.datasets.BoundaryCondition.PERIODIC
@@ -51,8 +51,12 @@ class AdaptiveDVstrideDecoder(nn.Module):
             (TB, C_out_selected, H', W', D')
         """
         # Decoder reverses kernel order: first uses kernel2 then kernel1
-        base_kernel1 = tuple(self.base_kernel_size[i][1] for i in range(self.spatial_dims))
-        base_kernel2 = tuple(self.base_kernel_size[i][0] for i in range(self.spatial_dims))
+        base_kernel1 = tuple(
+            self.base_kernel_size[i][1] for i in range(self.spatial_dims)
+        )
+        base_kernel2 = tuple(
+            self.base_kernel_size[i][0] for i in range(self.spatial_dims)
+        )
 
         # --- First transposed conv: hidden_dim -> inner_dim ---
         proj1_weight = self.param(
@@ -62,11 +66,17 @@ class AdaptiveDVstrideDecoder(nn.Module):
         )
 
         x = self._adaptive_conv_transpose(
-            x, bcs, proj1_weight, bias=None,
-            stride=stride1, padding=(0,) * self.spatial_dims,
+            x,
+            bcs,
+            proj1_weight,
+            bias=None,
+            stride=stride1,
+            padding=(0,) * self.spatial_dims,
         )
 
-        x = RMSGroupNorm(num_groups=self.groups, num_channels=self.inner_dim, name="norm1")(x)
+        x = RMSGroupNorm(
+            num_groups=self.groups, num_channels=self.inner_dim, name="norm1"
+        )(x)
         x = jax.nn.silu(x) if self.use_silu else jax.nn.gelu(x)
 
         # --- Second transposed conv: inner_dim -> output_dim ---
@@ -86,8 +96,12 @@ class AdaptiveDVstrideDecoder(nn.Module):
         b2 = proj2_bias[state_labels]
 
         x = self._adaptive_conv_transpose(
-            x, bcs, w2, bias=b2,
-            stride=stride2, padding=(0,) * self.spatial_dims,
+            x,
+            bcs,
+            w2,
+            bias=b2,
+            stride=stride2,
+            padding=(0,) * self.spatial_dims,
         )
 
         return x
@@ -109,7 +123,9 @@ class AdaptiveDVstrideDecoder(nn.Module):
         periodic_padding_list = []
         padding_out_list = []
 
-        bcs_padded = list(bcs) if len(bcs) >= self.spatial_dims else list(bcs) + [[2, 2]]
+        bcs_padded = (
+            list(bcs) if len(bcs) >= self.spatial_dims else list(bcs) + [[2, 2]]
+        )
 
         # Iterate reversed spatial dims matching PyTorch order
         for i in range(1, self.spatial_dims + 1):
@@ -146,11 +162,15 @@ class AdaptiveDVstrideDecoder(nn.Module):
         if any(p > 0 for p in periodic_padding_list):
             pad_pairs = [(0, 0), (0, 0)]  # batch, channel
             for ii in range(0, len(periodic_padding_list), 2):
-                pad_pairs.append((periodic_padding_list[ii], periodic_padding_list[ii + 1]))
-            x = jnp.pad(x, pad_pairs, mode='wrap')
+                pad_pairs.append(
+                    (periodic_padding_list[ii], periodic_padding_list[ii + 1])
+                )
+            x = jnp.pad(x, pad_pairs, mode="wrap")
 
         # Transposed conv
-        x = _conv_transpose3d(x, weight, bias=bias, stride=tuple(stride), padding=tuple(padding))
+        x = _conv_transpose3d(
+            x, weight, bias=bias, stride=tuple(stride), padding=tuple(padding)
+        )
 
         # Apply output cropping
         if any(p < 0 for p in padding_out_list):
@@ -160,10 +180,12 @@ class AdaptiveDVstrideDecoder(nn.Module):
                 right_crop = -padding_out_list[ii + 1]
                 if left_crop > 0 or right_crop > 0:
                     dim_size = x.shape[2 + ii // 2]
-                    slices.append(slice(
-                        left_crop if left_crop > 0 else None,
-                        (dim_size - right_crop) if right_crop > 0 else None,
-                    ))
+                    slices.append(
+                        slice(
+                            left_crop if left_crop > 0 else None,
+                            (dim_size - right_crop) if right_crop > 0 else None,
+                        )
+                    )
                 else:
                     slices.append(slice(None))
             x = x[tuple(slices)]

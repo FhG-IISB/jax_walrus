@@ -2,7 +2,7 @@
 Convert pretrained Walrus PyTorch weights to JAX/Flax msgpack format.
 
 Usage:
-    python convert_pretrained.py --input walrus.pt --output walrus_jax.msgpack
+    python convert_pretrained.py --input walrus.pt --output jax_walrus.msgpack
 
 Loads the PyTorch checkpoint, maps all parameters to the JAX/Flax param tree,
 validates the mapping is complete, and saves as a msgpack file that can be
@@ -15,7 +15,7 @@ import sys
 
 import numpy as np
 
-from walrus_jax.convert_weights import (
+from jax_walrus.convert_weights import (
     load_pytorch_state_dict,
     convert_pytorch_to_jax_params,
 )
@@ -50,17 +50,21 @@ def main():
         description="Convert Walrus PyTorch weights to JAX msgpack"
     )
     parser.add_argument(
-        "--input", "-i",
+        "--input",
+        "-i",
         required=True,
         help="Path to PyTorch checkpoint (.pt file)",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         default=None,
         help="Output msgpack path (default: <input>_jax.msgpack)",
     )
     parser.add_argument(
-        "--processor-blocks", type=int, default=40,
+        "--processor-blocks",
+        type=int,
+        default=40,
         help="Number of processor blocks in the model (default: 40)",
     )
     args = parser.parse_args()
@@ -159,7 +163,9 @@ def main():
 
     loaded = from_bytes(jax_params_jnp, loaded_bytes)
     loaded_flat = flatten_params(loaded["params"])
-    assert len(loaded_flat) == n_jax, f"Mismatch: saved {n_jax}, loaded {len(loaded_flat)}"
+    assert (
+        len(loaded_flat) == n_jax
+    ), f"Mismatch: saved {n_jax}, loaded {len(loaded_flat)}"
 
     max_diff = 0.0
     for (orig_path, orig_arr), (load_path, load_arr) in zip(jax_flat, loaded_flat):

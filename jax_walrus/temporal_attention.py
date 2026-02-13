@@ -14,8 +14,8 @@ import jax.numpy as jnp
 import flax.linen as nn
 from einops import rearrange
 
-from walrus_jax.normalization import RMSGroupNorm
-from walrus_jax.rope import (
+from jax_walrus.normalization import RMSGroupNorm
+from jax_walrus.rope import (
     SimpleRotaryEmbedding,
     apply_rotary_pos_emb_simple,
     RelativePositionBias,
@@ -135,12 +135,16 @@ class AxialTimeAttention(nn.Module):
 
         if self.causal_in_time and self.bias_type != "rel":
             mask = jnp.triu(jnp.ones((T, T), dtype=jnp.bool_), k=1)
-            attn_weights = jnp.where(mask[None, None, :, :], float("-inf"), attn_weights)
+            attn_weights = jnp.where(
+                mask[None, None, :, :], float("-inf"), attn_weights
+            )
 
         attn_weights = jax.nn.softmax(attn_weights, axis=-1)
         att_out = jnp.einsum("bhst, bhtc -> bhsc", attn_weights, v)
 
-        att_out = rearrange(att_out, "(b h w d) he t c -> (t b) (he c) h w d", h=H, w=W, d=D)
+        att_out = rearrange(
+            att_out, "(b h w d) he t c -> (t b) (he c) h w d", h=H, w=W, d=D
+        )
 
         # 1x1 output conv
         output_head_weight = self.param(
@@ -160,7 +164,9 @@ class AxialTimeAttention(nn.Module):
         # Stochastic depth (drop_path)
         if self.drop_path > 0.0:
             x = _drop_path(
-                x, self.drop_path, deterministic,
+                x,
+                self.drop_path,
+                deterministic,
                 self.make_rng("drop_path") if not deterministic else None,
             )
 

@@ -12,8 +12,8 @@ import jax.numpy as jnp
 import flax.linen as nn
 from einops import rearrange
 
-from walrus_jax.normalization import RMSGroupNorm
-from walrus_jax.rope import LRRotaryEmbedding, apply_rotary_emb
+from jax_walrus.normalization import RMSGroupNorm
+from jax_walrus.rope import LRRotaryEmbedding, apply_rotary_emb
 
 
 class SwiGLU(nn.Module):
@@ -80,7 +80,11 @@ class FullAttention(nn.Module):
         fused_ff_qkv = nn.Dense(total_dim, name="fused_ff_qkv")(x)
         ff, q, k, v = jnp.split(
             fused_ff_qkv,
-            [fused_dims[0], fused_dims[0] + fused_dims[1], fused_dims[0] + fused_dims[1] + fused_dims[2]],
+            [
+                fused_dims[0],
+                fused_dims[0] + fused_dims[1],
+                fused_dims[0] + fused_dims[1] + fused_dims[2],
+            ],
             axis=-1,
         )
 
@@ -127,7 +131,9 @@ class FullAttention(nn.Module):
         # Stochastic depth (drop_path)
         if self.drop_path > 0.0:
             x = _drop_path(
-                x, self.drop_path, deterministic,
+                x,
+                self.drop_path,
+                deterministic,
                 self.make_rng("drop_path") if not deterministic else None,
             )
         x = rearrange(x, "b h w d c -> b c h w d") + residual

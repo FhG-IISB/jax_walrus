@@ -24,17 +24,23 @@ import jax.numpy as jnp
 import flax.linen as nn
 from einops import rearrange
 
-from walrus_jax.encoder import AdaptiveDVstrideEncoder, SpaceBagAdaptiveDVstrideEncoder
-from walrus_jax.decoder import AdaptiveDVstrideDecoder
-from walrus_jax.processor import SpaceTimeSplitBlock
+from jax_walrus.encoder import AdaptiveDVstrideEncoder, SpaceBagAdaptiveDVstrideEncoder
+from jax_walrus.decoder import AdaptiveDVstrideDecoder
+from jax_walrus.processor import SpaceTimeSplitBlock
 
 
 # ── Deterministic stride selection ──
 # Mirrors walrus.models.shared_utils.flexi_utils.choose_kernel_size_deterministic
 
 _PATCH_DICT = {
-    0: (1, 1), 1: (1, 1), 4: (2, 2), 8: (4, 2),
-    12: (6, 2), 16: (4, 4), 24: (6, 4), 32: (8, 4),
+    0: (1, 1),
+    1: (1, 1),
+    4: (2, 2),
+    8: (4, 2),
+    12: (6, 2),
+    16: (4, 4),
+    24: (6, 4),
+    32: (8, 4),
 }
 
 
@@ -102,13 +108,14 @@ def _compute_padding(
         effective_stride = s1 * s2
         extra_padding = (effective_ps - effective_stride) // 2
 
-        is_periodic = (bcs[i][0] == BC_PERIODIC)
+        is_periodic = bcs[i][0] == BC_PERIODIC
         if is_periodic:
             jitter_pad = [0, 0]
         else:
             jitter_pad = (
                 [effective_stride // 2, effective_stride // 2]
-                if jitter_patches else [0, 0]
+                if jitter_patches
+                else [0, 0]
             )
 
         axis_pad = [p + extra_padding for p in jitter_pad]
@@ -161,8 +168,14 @@ def _slice_padding(x, paddings, n_leading_dims):
 
 
 def _jitter_forward(
-    x, bcs, n_dims, max_d, base_kernel, random_kernel,
-    jitter_patches, rng_key,
+    x,
+    bcs,
+    n_dims,
+    max_d,
+    base_kernel,
+    random_kernel,
+    jitter_patches,
+    rng_key,
 ):
     """Apply patch jittering: pad, create BC flags, optionally roll.
 
@@ -182,7 +195,13 @@ def _jitter_forward(
     shape = x.shape[3:]
 
     const_pad, periodic_pad, _, _ = _compute_padding(
-        shape, bcs, n_dims, max_d, base_kernel, random_kernel, jitter_patches,
+        shape,
+        bcs,
+        n_dims,
+        max_d,
+        base_kernel,
+        random_kernel,
+        jitter_patches,
     )
 
     # Constant padding
@@ -204,7 +223,7 @@ def _jitter_forward(
         if i >= n_dims or shape[i] == 1:
             continue
 
-        is_periodic = (bcs[i][0] == BC_PERIODIC)
+        is_periodic = bcs[i][0] == BC_PERIODIC
 
         if not is_periodic:
             pad_idx = len(const_pad) - 2 * (i + 1)
@@ -234,7 +253,9 @@ def _jitter_forward(
 
             rng_key, subkey = jax.random.split(rng_key)
             if half_patch > 1:
-                roll_rate = int(jax.random.randint(subkey, (), -(half_patch - 1), half_patch))
+                roll_rate = int(
+                    jax.random.randint(subkey, (), -(half_patch - 1), half_patch)
+                )
             else:
                 roll_rate = 0
             roll_quantities.append(roll_rate)
@@ -418,10 +439,12 @@ class IsotropicModel(nn.Module):
 
         # ── Auto-build field_indices ──
         if self.use_spacebag and field_indices is None:
-            field_indices = jnp.concatenate([
-                state_labels,
-                jnp.array([2, 0, 1], dtype=state_labels.dtype),
-            ])
+            field_indices = jnp.concatenate(
+                [
+                    state_labels,
+                    jnp.array([2, 0, 1], dtype=state_labels.dtype),
+                ]
+            )
 
         # ── Input field dropout (training only) ──
         if not deterministic and self.input_field_drop > 0.0:
@@ -445,9 +468,14 @@ class IsotropicModel(nn.Module):
         if should_jitter:
             bcs_flat = bcs[0] if isinstance(bcs, tuple) else bcs
             x, jitter_info = _jitter_forward(
-                x, bcs=bcs_flat, n_dims=dim_key, max_d=self.max_d,
-                base_kernel=self.base_kernel_size, random_kernel=random_kernel,
-                jitter_patches=jitter_active, rng_key=rng_jitter,
+                x,
+                bcs=bcs_flat,
+                n_dims=dim_key,
+                max_d=self.max_d,
+                base_kernel=self.base_kernel_size,
+                random_kernel=random_kernel,
+                jitter_patches=jitter_active,
+                rng_key=rng_jitter,
             )
         else:
             jitter_info = None
@@ -475,9 +503,14 @@ class IsotropicModel(nn.Module):
                 rng_roll = self.make_rng("jitter")
                 for dim_idx in range(len(periodic_dims)):
                     rng_roll, subkey = jax.random.split(rng_roll)
-                    rq = int(jax.random.randint(
-                        subkey, (), 0, periodic_dim_shapes[dim_idx],
-                    ))
+                    rq = int(
+                        jax.random.randint(
+                            subkey,
+                            (),
+                            0,
+                            periodic_dim_shapes[dim_idx],
+                        )
+                    )
                     roll_total[dim_idx] += rq
                     x_proc = jnp.roll(x_proc, rq, axis=periodic_dims[dim_idx])
 
@@ -504,7 +537,12 @@ class IsotropicModel(nn.Module):
         T_out = x_proc.shape[0]
         x_dec = rearrange(x_proc, "T B ... -> (T B) ...")
         x_dec = self._make_decoder(
-            dec_name, x_dec, state_labels, bcs_flat, stride2, stride1,
+            dec_name,
+            x_dec,
+            state_labels,
+            bcs_flat,
+            stride2,
+            stride1,
         )
         x_dec = rearrange(x_dec, "(T B) ... -> T B ...", T=T_out)
 

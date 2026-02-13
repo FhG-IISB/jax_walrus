@@ -9,8 +9,8 @@ Each block is one layer in the isotropic processor stack.
 import flax.linen as nn
 from einops import rearrange
 
-from walrus_jax.spatial_attention import FullAttention
-from walrus_jax.temporal_attention import AxialTimeAttention
+from jax_walrus.spatial_attention import FullAttention
+from jax_walrus.temporal_attention import AxialTimeAttention
 
 
 class SpaceTimeSplitBlock(nn.Module):

@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 
-from walrus_jax.normalization import RMSGroupNorm
+from jax_walrus.normalization import RMSGroupNorm
 
 
 def _conv3d(x, weight, bias=None, stride=(1, 1, 1), padding=(0, 0, 0)):
@@ -126,8 +126,12 @@ class AdaptiveDVstrideEncoder(nn.Module):
         Returns:
             (TB, C_out, H', W', D')
         """
-        base_kernel1 = tuple(self.base_kernel_size[i][0] for i in range(self.spatial_dims))
-        base_kernel2 = tuple(self.base_kernel_size[i][1] for i in range(self.spatial_dims))
+        base_kernel1 = tuple(
+            self.base_kernel_size[i][0] for i in range(self.spatial_dims)
+        )
+        base_kernel2 = tuple(
+            self.base_kernel_size[i][1] for i in range(self.spatial_dims)
+        )
 
         # First conv: input_dim -> inner_dim
         proj1_weight = self.param(
@@ -145,7 +149,9 @@ class AdaptiveDVstrideEncoder(nn.Module):
                 s1[-i] = 1
 
         x = _conv3d(x, w1, bias=None, stride=tuple(s1), padding=(0, 0, 0))
-        x = RMSGroupNorm(num_groups=self.groups, num_channels=self.inner_dim, name="norm1")(x)
+        x = RMSGroupNorm(
+            num_groups=self.groups, num_channels=self.inner_dim, name="norm1"
+        )(x)
         x = jax.nn.silu(x) if self.use_silu else jax.nn.gelu(x)
 
         # Second conv: inner_dim -> output_dim
@@ -164,7 +170,9 @@ class AdaptiveDVstrideEncoder(nn.Module):
                 s2[-i] = 1
 
         x = _conv3d(x, w2, bias=None, stride=tuple(s2), padding=(0, 0, 0))
-        x = RMSGroupNorm(num_groups=self.groups, num_channels=self.output_dim, name="norm2")(x)
+        x = RMSGroupNorm(
+            num_groups=self.groups, num_channels=self.output_dim, name="norm2"
+        )(x)
         x = jax.nn.silu(x) if self.use_silu else jax.nn.gelu(x)
 
         return x
@@ -202,8 +210,12 @@ class SpaceBagAdaptiveDVstrideEncoder(nn.Module):
         Returns:
             (TB, C_out, H', W', D')
         """
-        base_kernel1 = tuple(self.base_kernel_size[i][0] for i in range(self.spatial_dims))
-        base_kernel2 = tuple(self.base_kernel_size[i][1] for i in range(self.spatial_dims))
+        base_kernel1 = tuple(
+            self.base_kernel_size[i][0] for i in range(self.spatial_dims)
+        )
+        base_kernel2 = tuple(
+            self.base_kernel_size[i][1] for i in range(self.spatial_dims)
+        )
 
         # Full proj1 weight: (inner_dim, full_input_dim, k1, k2, k3)
         proj1_weight = self.param(
@@ -215,15 +227,11 @@ class SpaceBagAdaptiveDVstrideEncoder(nn.Module):
         # Subsample input channels and apply SpaceBag scaling
         w1 = proj1_weight[:, field_indices]
         scale_factor = (
-            (proj1_weight.shape[1] - self.extra_dims)
-            / (w1.shape[1] - self.extra_dims)
+            (proj1_weight.shape[1] - self.extra_dims) / (w1.shape[1] - self.extra_dims)
         ) ** 0.5
 
         # Match PyTorch: scale all except last 2 channels (:-2, not :-extra_dims)
-        w1 = jnp.concatenate([
-            w1[:, :-2] * scale_factor,
-            w1[:, -2:]
-        ], axis=1)
+        w1 = jnp.concatenate([w1[:, :-2] * scale_factor, w1[:, -2:]], axis=1)
 
         s1 = list(stride1)
         spatial_shape = x.shape[2:]
@@ -233,7 +241,9 @@ class SpaceBagAdaptiveDVstrideEncoder(nn.Module):
                 s1[-i] = 1
 
         x = _conv3d(x, w1, bias=None, stride=tuple(s1), padding=(0, 0, 0))
-        x = RMSGroupNorm(num_groups=self.groups, num_channels=self.inner_dim, name="norm1")(x)
+        x = RMSGroupNorm(
+            num_groups=self.groups, num_channels=self.inner_dim, name="norm1"
+        )(x)
         x = jax.nn.silu(x) if self.use_silu else jax.nn.gelu(x)
 
         # Second conv (same as plain encoder)
@@ -252,7 +262,9 @@ class SpaceBagAdaptiveDVstrideEncoder(nn.Module):
                 s2[-i] = 1
 
         x = _conv3d(x, w2, bias=None, stride=tuple(s2), padding=(0, 0, 0))
-        x = RMSGroupNorm(num_groups=self.groups, num_channels=self.output_dim, name="norm2")(x)
+        x = RMSGroupNorm(
+            num_groups=self.groups, num_channels=self.output_dim, name="norm2"
+        )(x)
         x = jax.nn.silu(x) if self.use_silu else jax.nn.gelu(x)
 
         return x

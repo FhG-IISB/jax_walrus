@@ -76,7 +76,7 @@ uv pip install -e ".[test]"
 Convert a pretrained PyTorch checkpoint to JAX msgpack format:
 
 ```bash
-python scripts/convert_pretrained.py --input walrus.pt --output walrus_jax.msgpack
+python scripts/convert_pretrained.py --input walrus.pt --output jax_walrus.msgpack
 ```
 
 The script:
@@ -104,7 +104,7 @@ The script:
 ```python
 import jax.numpy as jnp
 from flax.serialization import from_bytes
-from walrus_jax import IsotropicModel
+from jax_walrus import IsotropicModel
 
 # Create model with pretrained config
 model = IsotropicModel(
@@ -124,7 +124,7 @@ model = IsotropicModel(
 )
 
 # Load converted weights
-with open("walrus_jax.msgpack", "rb") as f:
+with open("jax_walrus.msgpack", "rb") as f:
     params = from_bytes(target=None, encoded_bytes=f.read())
 
 # Run inference
@@ -147,19 +147,19 @@ output = model.apply(
 ### Using Individual Components
 
 ```python
-from walrus_jax.encoder import SpaceBagAdaptiveDVstrideEncoder
-from walrus_jax.decoder import AdaptiveDVstrideDecoder
-from walrus_jax.processor import SpaceTimeSplitBlock
-from walrus_jax.spatial_attention import FullAttention
-from walrus_jax.temporal_attention import AxialTimeAttention
-from walrus_jax.normalization import RMSGroupNorm
+from jax_walrus.encoder import SpaceBagAdaptiveDVstrideEncoder
+from jax_walrus.decoder import AdaptiveDVstrideDecoder
+from jax_walrus.processor import SpaceTimeSplitBlock
+from jax_walrus.spatial_attention import FullAttention
+from jax_walrus.temporal_attention import AxialTimeAttention
+from jax_walrus.normalization import RMSGroupNorm
 ```
 
 ## Project Structure
 
 ```
-walrus_jax/
-├── walrus_jax/              # Core library
+jax_walrus/
+├── jax_walrus/              # Core library
 │   ├── __init__.py          # Exports IsotropicModel
 │   ├── model.py             # IsotropicModel (top-level)
 │   ├── encoder.py           # AdaptiveDVstride + SpaceBag encoders
