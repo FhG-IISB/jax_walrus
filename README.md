@@ -1,6 +1,6 @@
 # Walrus-JAX
 
-> **Note:** This package is designed to be used with [jNO](https://github.com/armbrusl/jNO).
+> **Note:** This package is designed to be used with [jNO](https://github.com/FhG-IISB/jNO).
 
 > **Warning:** This is a research-level repository. It may contain bugs and is subject to continuous change without notice.
 
