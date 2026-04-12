@@ -4,7 +4,7 @@
 
 > **Warning:** This is a research-level repository. It may contain bugs and is subject to continuous change without notice.
 
-A JAX/Flax translation of the [Walrus](https://github.com/PolymathicAI/the_well) PDE foundation model, maintaining exact 1-to-1 weight compatibility with the original PyTorch implementation for pretrained checkpoint conversion.
+A JAX/Flax translation of the [Walrus](https://github.com/nubskr/walrus) PDE foundation model, maintaining exact 1-to-1 weight compatibility with the original PyTorch implementation for pretrained checkpoint conversion.
 
 ## Overview
 
@@ -185,17 +185,6 @@ output = model.apply(
     field_indices=jnp.array([0, 1, 2, 3, 4, 5]),
     dim_key=3,  # 3D data
 )
-```
-
-### Using Individual Components
-
-```python
-from jax_walrus.encoder import SpaceBagAdaptiveDVstrideEncoder
-from jax_walrus.decoder import AdaptiveDVstrideDecoder
-from jax_walrus.processor import SpaceTimeSplitBlock
-from jax_walrus.spatial_attention import FullAttention
-from jax_walrus.temporal_attention import AxialTimeAttention
-from jax_walrus.normalization import RMSGroupNorm
 ```
 
 ## Module Details
