@@ -413,7 +413,10 @@ class IsotropicModel(nn.Module):
                 Use ``2`` for periodic, ``0`` for open.
             stride1: First encoder conv stride.  Auto-computed if ``None``.
             stride2: Second encoder conv stride.  Auto-computed if ``None``.
-            field_indices: SpaceBag channel indices.  Auto-built if ``None``.
+            field_indices: SpaceBag channel indices for encoder input selection.
+                If ``None`` and SpaceBag is enabled, defaults to
+                ``state_labels + [2, 0, 1]`` for compatibility with
+                original PyTorch training behavior.
             dim_key: Encoder/decoder variant (2 or 3).  Auto-detected if ``None``.
             deterministic: ``True`` for inference, ``False`` for training.
 
@@ -436,6 +439,8 @@ class IsotropicModel(nn.Module):
         # Ensure state_labels is a proper array (callers may pass a tuple
         # to avoid the equinox "JAX array set as static" warning).
         state_labels = jnp.asarray(state_labels, dtype=jnp.int32)
+        if field_indices is not None:
+            field_indices = jnp.asarray(field_indices, dtype=jnp.int32)
 
         T, B, C = x.shape[:3]
         x_shape = x.shape[3:]
@@ -500,6 +505,13 @@ class IsotropicModel(nn.Module):
             )
         else:
             jitter_info = None
+
+        if self.use_spacebag and field_indices is not None and x.shape[2] != field_indices.shape[0]:
+            raise ValueError(
+                "SpaceBag channel mismatch at encoder input: "
+                f"x has C={x.shape[2]} channels after jitter/BC flags, but "
+                f"field_indices has len={field_indices.shape[0]}."
+            )
 
         # ── Encode ──
         x_flat = rearrange(x, "T B ... -> (T B) ...")
